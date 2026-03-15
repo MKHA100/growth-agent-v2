@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Growth Intelligence Report — {{ report.product_name }}</title>
+  <style>
+    /* -----------------------------------------------------------------------
+       Base & Typography
+    ----------------------------------------------------------------------- */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 10pt;
+      line-height: 1.6;
+      color: #1a1a2e;
+      background: #ffffff;
+    }
+
+    h1 { font-size: 22pt; font-weight: 700; }
+    h2 { font-size: 14pt; font-weight: 600; margin-bottom: 8px; }
+    h3 { font-size: 11pt; font-weight: 600; margin-bottom: 6px; }
+    h4 { font-size: 10pt; font-weight: 500; margin-bottom: 4px; color: #555; }
+
+    p { margin-bottom: 8px; }
+
+    /* -----------------------------------------------------------------------
+       Page Layout
+    ----------------------------------------------------------------------- */
+    @page {
+      size: A4;
+      margin: 20mm 18mm 20mm 18mm;
+
+      @bottom-center {
+        content: "Growth Intelligence Report — " string(product-name) " | Page " counter(page) " of " counter(pages);
+        font-size: 8pt;
+        color: #888;
+      }
+    }
+
+    .page-break {
+      page-break-after: always;
+    }
+
+    /* -----------------------------------------------------------------------
+       Cover Page
+    ----------------------------------------------------------------------- */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 240mm;
+      padding: 40px 0;
+    }
+
+    .cover-badge {
+      display: inline-block;
+      background: #6366f1;
+      color: #fff;
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 24px;
+      width: fit-content;
+    }
+
+    .cover-title {
+      font-size: 28pt;
+      font-weight: 700;
+      color: #1a1a2e;
+      line-height: 1.15;
+      margin-bottom: 12px;
+      string-set: product-name content();
+    }
+
+    .cover-subtitle {
+      font-size: 13pt;
+      color: #6366f1;
+      font-weight: 500;
+      margin-bottom: 32px;
+    }
+
+    .cover-meta {
+      border-top: 2px solid #e5e7eb;
+      padding-top: 20px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+
+    .cover-meta-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cover-meta-label {
+      font-size: 7.5pt;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+
+    .cover-meta-value {
+      font-size: 9.5pt;
+      font-weight: 500;
+      color: #374151;
+    }
+
+    /* -----------------------------------------------------------------------
+       Section Headers
+    ----------------------------------------------------------------------- */
+    .section-header {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: #ffffff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      margin-top: 8px;
+    }
+
+    .section-header h2 {
+      color: #ffffff;
+      margin-bottom: 0;
+      font-size: 12pt;
+    }
+
+    .section-header .domain-meta {
+      font-size: 8pt;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+
+    /* -----------------------------------------------------------------------
+       Confidence Badge
+    ----------------------------------------------------------------------- */
+    .confidence-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 8pt;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .confidence-high   { background: #d1fae5; color: #065f46; }
+    .confidence-medium { background: #fef3c7; color: #92400e; }
+    .confidence-low    { background: #fee2e2; color: #991b1b; }
+
+    /* -----------------------------------------------------------------------
+       Status Pills
+    ----------------------------------------------------------------------- */
+    .status-pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 7.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .status-complete { background: #d1fae5; color: #065f46; }
+    .status-partial  { background: #fef3c7; color: #92400e; }
+    .status-failed   { background: #fee2e2; color: #991b1b; }
+
+    /* -----------------------------------------------------------------------
+       Executive Summary
+    ----------------------------------------------------------------------- */
+    .exec-summary {
+      background: #f8faff;
+      border-left: 4px solid #6366f1;
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 24px;
+      font-size: 10.5pt;
+      line-height: 1.7;
+    }
+
+    /* -----------------------------------------------------------------------
+       Domain Section
+    ----------------------------------------------------------------------- */
+    .domain-section {
+      margin-bottom: 24px;
+    }
+
+    .domain-summary {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 10pt;
+      line-height: 1.65;
+    }
+
+    /* -----------------------------------------------------------------------
+       Facts Table
+    ----------------------------------------------------------------------- */
+    .facts-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      font-size: 8.5pt;
+    }
+
+    .facts-table th {
+      background: #f3f4f6;
+      padding: 6px 10px;
+      text-align: left;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 2px solid #e5e7eb;
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .facts-table td {
+      padding: 6px 10px;
+      vertical-align: top;
+      border-bottom: 1px solid #f3f4f6;
+      color: #374151;
+    }
+
+    .facts-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .fact-claim { max-width: 280px; }
+    .fact-source { max-width: 140px; word-break: break-all; font-size: 7.5pt; color: #6b7280; }
+    .fact-confidence { white-space: nowrap; text-align: center; }
+
+    /* -----------------------------------------------------------------------
+       Interpretations
+    ----------------------------------------------------------------------- */
+    .interpretations {
+      margin-bottom: 12px;
+    }
+
+    .interpretation-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 5px 0;
+      border-bottom: 1px dotted #e5e7eb;
+      font-size: 9pt;
+    }
+
+    .interpretation-item:last-child {
+      border-bottom: none;
+    }
+
+    .interpretation-bullet {
+      color: #6366f1;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .interpretation-label {
+      font-size: 7pt;
+      color: #9ca3af;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    /* -----------------------------------------------------------------------
+       Failed Domain Caveat
+    ----------------------------------------------------------------------- */
+    .failed-caveat {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 9pt;
+      color: #92400e;
+    }
+
+    .failed-caveat strong {
+      color: #78350f;
+    }
+
+    /* -----------------------------------------------------------------------
+       Source Appendix
+    ----------------------------------------------------------------------- */
+    .appendix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7.5pt;
+    }
+
+    .appendix-table th {
+      background: #f3f4f6;
+      padding: 5px 8px;
+      text-align: left;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 2px solid #e5e7eb;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 7pt;
+    }
+
+    .appendix-table td {
+      padding: 4px 8px;
+      border-bottom: 1px solid #f3f4f6;
+      color: #4b5563;
+      word-break: break-all;
+    }
+
+    .appendix-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* -----------------------------------------------------------------------
+       Utility
+    ----------------------------------------------------------------------- */
+    .label {
+      font-size: 7.5pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 16px 0;
+    }
+
+    .text-muted { color: #6b7280; }
+    .text-small { font-size: 8.5pt; }
+    .mt-4 { margin-top: 16px; }
+    .mb-4 { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+
+<!-- =========================================================================
+     COVER PAGE
+========================================================================== -->
+<div class="cover">
+  <div class="cover-badge">Growth Intelligence Report</div>
+
+  <h1 class="cover-title">{{ report.product_name }}</h1>
+  <div class="cover-subtitle">Market Intelligence Analysis</div>
+
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <span class="cover-meta-label">Generated</span>
+      <span class="cover-meta-value">{{ generated_at.strftime('%B %d, %Y at %H:%M UTC') }}</span>
+    </div>
+    <div class="cover-meta-item">
+      <span class="cover-meta-label">Domains Analysed</span>
+      <span class="cover-meta-value">
+        {{ report.domains | length }}
+        {% if report.failed_domains %}
+          ({{ report.failed_domains | length }} failed)
+        {% endif %}
+      </span>
+    </div>
+    <div class="cover-meta-item">
+      <span class="cover-meta-label">Powered By</span>
+      <span class="cover-meta-value">Veracity AI × Hatch</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================================
+     EXECUTIVE SUMMARY
+========================================================================== -->
+<div>
+  <div class="section-header">
+    <h2>Executive Summary</h2>
+  </div>
+
+  {% if report.failed_domains %}
+  <div class="failed-caveat">
+    <strong>Partial Report:</strong>
+    The following intelligence domains encountered errors and may not be represented in the findings:
+    <strong>{{ report.failed_domains | join(', ') | domain_title }}</strong>.
+    The analysis below is based on available data only.
+  </div>
+  {% endif %}
+
+  <div class="exec-summary">
+    {{ report.executive_summary or 'Executive summary unavailable.' }}
+  </div>
+
+  <p class="text-small text-muted">
+    This report was generated by the Growth Intelligence Agent, a sequential multi-agent system
+    processing signals from web search (Gemini), web scraping (Firecrawl), social media
+    (Reddit, HackerNews), and deep document parsing (LlamaParse). All factual claims are
+    source-attributed. Agent inferences are clearly labelled as interpretations.
+  </p>
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================================
+     DOMAIN SECTIONS
+========================================================================== -->
+{% set domain_icons = {
+  'market': '📈',
+  'competitive': '🏆',
+  'win_loss': '⚖️',
+  'pricing': '💰',
+  'positioning': '🎯',
+  'adjacent': '🔭'
+} %}
+
+{% set domain_questions = {
+  'market': 'Where is the category heading? What are the leading indicators?',
+  'competitive': 'Who is doing what? Is a given bet worth making?',
+  'win_loss': 'Why are deals being lost? What does the market look like from the buyer?',
+  'pricing': 'Is the pricing model right? Where is WTP shifting?',
+  'positioning': 'How to talk about what already exists?',
+  'adjacent': 'What is coming from outside your category that you are not watching?'
+} %}
+
+{% for domain_key, finding in report.domains.items() %}
+{% if domain_key != 'synthesis' %}
+
+<div class="domain-section">
+  <div class="section-header">
+    <h2>
+      {{ domain_icons.get(domain_key, '') }}
+      {{ domain_key | domain_title }}
+      <span class="status-pill status-{{ finding.status }}" style="float: right; margin-top: 2px;">{{ finding.status }}</span>
+    </h2>
+    <div class="domain-meta">{{ domain_questions.get(domain_key, '') }}</div>
+  </div>
+
+  {% if finding.status == 'failed' %}
+  <div class="failed-caveat">
+    <strong>Domain failed:</strong> {{ finding.error_reason or 'Unknown error. No data available for this domain.' }}
+  </div>
+  {% else %}
+
+  <!-- Summary -->
+  <div class="domain-summary">
+    {{ finding.summary }}
+    <span class="confidence-badge confidence-{% if finding.confidence >= 0.8 %}high{% elif finding.confidence >= 0.6 %}medium{% else %}low{% endif %}">
+      {{ finding.confidence | pct }} confidence
+    </span>
+  </div>
+
+  <!-- Facts -->
+  {% if finding.facts %}
+  <div class="label">Source-attributed Facts</div>
+  <table class="facts-table">
+    <thead>
+      <tr>
+        <th class="fact-claim">Claim</th>
+        <th class="fact-source">Source</th>
+        <th>Retrieved</th>
+        <th class="fact-confidence">Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fact in finding.facts %}
+      <tr>
+        <td class="fact-claim">{{ fact.claim }}</td>
+        <td class="fact-source">
+          {% if fact.source_url %}
+            <a href="{{ fact.source_url }}">{{ fact.source_url | truncate(50) }}</a>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td class="text-muted">{{ fact.retrieved_at.strftime('%Y-%m-%d') if fact.retrieved_at else '—' }}</td>
+        <td class="fact-confidence">
+          <span class="confidence-badge confidence-{% if fact.confidence >= 0.8 %}high{% elif fact.confidence >= 0.6 %}medium{% else %}low{% endif %}">
+            {{ fact.confidence | pct }}
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- Interpretations -->
+  {% if finding.interpretations %}
+  <div class="interpretations mt-4">
+    <div class="label">Agent Interpretations</div>
+    <p class="text-small text-muted" style="margin-bottom: 6px;">
+      The following are analytical inferences — clearly labelled as interpretations, not established facts.
+    </p>
+    {% for interp in finding.interpretations %}
+    <div class="interpretation-item">
+      <span class="interpretation-bullet">→</span>
+      <span>{{ interp }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% endif %}{# end if not failed #}
+</div>
+
+{% if not loop.last %}
+<hr class="divider" />
+{% endif %}
+
+{% endif %}{# end if not synthesis #}
+{% endfor %}
+
+<div class="page-break"></div>
+
+<!-- =========================================================================
+     SOURCE APPENDIX
+========================================================================== -->
+<div>
+  <div class="section-header">
+    <h2>Source Appendix</h2>
+  </div>
+  <p class="text-small text-muted mb-4">
+    All URLs retrieved during this analysis session, listed by domain.
+    Retrieval timestamps are in UTC.
+  </p>
+
+  <table class="appendix-table">
+    <thead>
+      <tr>
+        <th>Domain</th>
+        <th>Source URL</th>
+        <th>Retrieved</th>
+        <th>Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for domain_key, finding in report.domains.items() %}
+      {% if domain_key != 'synthesis' and finding.facts %}
+      {% for fact in finding.facts %}
+      <tr>
+        <td>{{ domain_key | domain_title }}</td>
+        <td>{{ fact.source_url or '—' }}</td>
+        <td>{{ fact.retrieved_at.strftime('%Y-%m-%d %H:%M') if fact.retrieved_at else '—' }}</td>
+        <td>{{ fact.confidence | pct }}</td>
+      </tr>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Footer branding -->
+<div style="margin-top: 32px; padding-top: 12px; border-top: 1px solid #e5e7eb; text-align: center;">
+  <p class="text-small text-muted">
+    Generated by Growth Intelligence Agent · Veracity AI × Hatch ·
+    {{ generated_at.strftime('%B %d, %Y') }}
+  </p>
+</div>
+
+</body>
+</html>
