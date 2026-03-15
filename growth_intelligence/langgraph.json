@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "growth_intelligence": "./main.py:graph"
+  },
+  "env": ".env"
+}
