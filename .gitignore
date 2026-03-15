@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv
+venv/
+env/
+
+# Secrets
+*.env
+!.env.example
+
+# PDF reports
+/tmp/reports/
+*.pdf
+
+# LangGraph
+.langgraph_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Pinecone cache
+.pinecone_cache/
+
+# Word docs
+*.docx
+~$*
