@@ -44,6 +44,7 @@ from schemas.findings import DomainFinding, FinalReport, PartialFinding
 # ---------------------------------------------------------------------------
 
 _ALL_DOMAINS = ["market", "competitive", "win_loss", "pricing", "positioning", "adjacent"]
+_DOMAIN_ORDER = _ALL_DOMAINS
 
 
 def _get_llm() -> ChatAnthropic:
@@ -136,7 +137,22 @@ async def classify_domains(state: OrchestratorState) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _make_domain_node(domain_tag: str, agent_class, next_domain: str | None):
+def _next_relevant_domain(relevant_domains: list[str], after: str | None = None) -> str | None:
+    """Return the next relevant domain after `after`, or None if none remain."""
+    start_idx = 0
+    if after:
+        try:
+            start_idx = _DOMAIN_ORDER.index(after) + 1
+        except ValueError:
+            start_idx = 0
+
+    for domain in _DOMAIN_ORDER[start_idx:]:
+        if domain in relevant_domains:
+            return domain
+    return None
+
+
+def _make_domain_node(domain_tag: str, agent_class):
     """Create a domain node function with graceful degradation."""
 
     async def run_domain(state: OrchestratorState) -> dict:
@@ -146,15 +162,17 @@ def _make_domain_node(domain_tag: str, agent_class, next_domain: str | None):
             agent = agent_class(session_id)
             finding = await agent.run(state.user_query)
         except Exception as exc:  # noqa: BLE001
+            import traceback
+            tb = traceback.format_exc()
             finding = PartialFinding(
                 domain=domain_tag,
                 status="failed",
-                error_reason=str(exc),
+                error_reason=f"{exc}\n\nTRACEBACK:\n{tb}",
             )
             error_domains = state.error_domains + [domain_tag]
 
             # Hidden failure message
-            fail_msg = AIMessage(content=f"{domain_tag} agent failed: {exc}")
+            fail_msg = AIMessage(content=f"{domain_tag} agent failed: {exc}\n\nTRACEBACK:\n{tb}")
             fail_msg.id = f"do-not-render-{fail_msg.id}"
 
             return {
@@ -164,6 +182,7 @@ def _make_domain_node(domain_tag: str, agent_class, next_domain: str | None):
             }
 
         confidence_pct = f"{finding.confidence:.0%}"
+        next_domain = _next_relevant_domain(state.relevant_domains, domain_tag)
         next_label = next_domain.replace("_", " ").title() if next_domain else "synthesis"
 
         # Visible progress message to user
@@ -335,27 +354,20 @@ async def update_memory(state: OrchestratorState) -> dict:
 # Conditional routing helpers
 # ---------------------------------------------------------------------------
 
-_DOMAIN_SEQUENCE = [
-    ("market", "competitive"),
-    ("competitive", "win_loss"),
-    ("win_loss", "pricing"),
-    ("pricing", "positioning"),
-    ("positioning", "adjacent"),
-    ("adjacent", None),
-]
+def _route_after_classify(state: OrchestratorState) -> str:
+    """Route to the first relevant domain or synthesise if none are relevant."""
+    next_domain = _next_relevant_domain(state.relevant_domains, None)
+    return f"run_{next_domain}" if next_domain else "synthesise"
 
 
-def _make_should_run(domain: str, next_domain: str | None) -> callable:
-    """Return a routing function that skips a domain if not in relevant_domains."""
-    skip_target = f"run_{next_domain}" if next_domain else "synthesise"
+def _make_route_after(domain: str):
+    """Return a routing function that skips to the next relevant domain."""
+    def route(state: OrchestratorState) -> str:
+        next_domain = _next_relevant_domain(state.relevant_domains, domain)
+        return f"run_{next_domain}" if next_domain else "synthesise"
 
-    def should_run(state: OrchestratorState) -> str:
-        if domain in state.relevant_domains:
-            return f"run_{domain}"
-        return skip_target
-
-    should_run.__name__ = f"should_run_{domain}"
-    return should_run
+    route.__name__ = f"route_after_{domain}"
+    return route
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +399,7 @@ def build_graph() -> StateGraph:
     }
 
     for domain, klass in _domain_classes.items():
-        next_d = next((n for d, n in _DOMAIN_SEQUENCE if d == domain), None)
-        builder.add_node(f"run_{domain}", _make_domain_node(domain, klass, next_d))
+        builder.add_node(f"run_{domain}", _make_domain_node(domain, klass))
 
     # Entry point
     builder.set_entry_point("receive_message")
@@ -396,32 +407,22 @@ def build_graph() -> StateGraph:
     # Linear flow: receive → classify
     builder.add_edge("receive_message", "classify_domains")
 
-    # Conditional routing from classify_domains to first domain or skip all
-    # Use a chain of conditional edges through the domain sequence
-    first_domain, first_next = _DOMAIN_SEQUENCE[0]
-    should_run_first = _make_should_run(first_domain, first_next)
+    # Conditional routing: classify → first relevant domain (or synthesise)
+    route_map = {f"run_{d}": f"run_{d}" for d in _DOMAIN_ORDER}
+    route_map["synthesise"] = "synthesise"
     builder.add_conditional_edges(
         "classify_domains",
-        should_run_first,
-        {f"run_{first_domain}": f"run_{first_domain}", f"run_{first_next}": f"run_{first_next}"},
+        _route_after_classify,
+        route_map,
     )
 
-    # Add conditional edges between sequential domain nodes
-    for i, (domain, next_domain) in enumerate(_DOMAIN_SEQUENCE):
-        if next_domain is None:
-            # Last domain → synthesise
-            builder.add_edge(f"run_{domain}", "synthesise")
-        else:
-            should_run_next = _make_should_run(next_domain, dict(_DOMAIN_SEQUENCE).get(next_domain))
-            skip_target = _next_or_synth(next_domain)
-            builder.add_conditional_edges(
-                f"run_{domain}",
-                should_run_next,
-                {
-                    f"run_{next_domain}": f"run_{next_domain}",
-                    skip_target: skip_target,
-                },
-            )
+    # Conditional routing between domain nodes: always jump to next relevant domain
+    for domain in _DOMAIN_ORDER:
+        builder.add_conditional_edges(
+            f"run_{domain}",
+            _make_route_after(domain),
+            route_map,
+        )
 
     # Linear tail: synthesise → export_pdf → stream_response → update_memory → END
     builder.add_edge("synthesise", "export_pdf")
@@ -430,10 +431,3 @@ def build_graph() -> StateGraph:
     builder.add_edge("update_memory", END)
 
     return builder.compile()
-
-
-def _next_or_synth(domain: str) -> str:
-    """Return the next domain node name, or 'synthesise' if domain is last."""
-    seq = dict(_DOMAIN_SEQUENCE)
-    next_d = seq.get(domain)
-    return f"run_{next_d}" if next_d else "synthesise"

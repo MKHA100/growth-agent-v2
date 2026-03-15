@@ -11,22 +11,34 @@ never appended as duplicates.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
-from mem0 import AsyncMemoryClient
+from mem0 import MemoryClient
 
 
-_client: AsyncMemoryClient | None = None
+_client: MemoryClient | None = None
 
 
-def _get_client() -> AsyncMemoryClient:
+def _get_client() -> MemoryClient:
     global _client
     if _client is None:
         api_key = os.environ.get("MEM0_API_KEY")
         if not api_key:
             raise RuntimeError("MEM0_API_KEY environment variable is not set.")
-        _client = AsyncMemoryClient(api_key=api_key)
+        _client = MemoryClient(api_key=api_key)
+    return _client
+
+
+async def _ensure_client() -> MemoryClient:
+    """Ensure the MemoryClient singleton is initialized (thread-safe for async)."""
+    global _client
+    if _client is None:
+        api_key = os.environ.get("MEM0_API_KEY")
+        if not api_key:
+            raise RuntimeError("MEM0_API_KEY environment variable is not set.")
+        _client = await asyncio.to_thread(MemoryClient, api_key=api_key)
     return _client
 
 
@@ -37,13 +49,19 @@ def _get_client() -> AsyncMemoryClient:
 
 async def get_global_context(session_id: str) -> dict[str, Any]:
     """Return the stored global context for this session as a flat dict."""
-    client = _get_client()
-    memories = await client.get_all(user_id=f"global:{session_id}")
+    client = await _ensure_client()
+    memories = await asyncio.to_thread(
+        lambda: client.get_all(filters={"user_id": f"global:{session_id}"})
+    )
     if not memories:
+        return {}
+    # Mem0 v2 returns {"results": [...], "count": n}
+    results = memories.get("results", memories) if isinstance(memories, dict) else memories
+    if not results:
         return {}
     # Mem0 returns a list of memory objects; collapse to dict
     context: dict[str, Any] = {}
-    for mem in memories:
+    for mem in results:
         # Each memory has a 'memory' text field and optional metadata
         context[mem.get("id", str(len(context)))] = mem.get("memory", "")
     return context
@@ -55,13 +73,15 @@ async def set_global_context(session_id: str, updates: dict[str, Any]) -> None:
     Mem0 will match semantically similar existing memories and update them
     in place rather than creating duplicates.
     """
-    client = _get_client()
+    client = await _ensure_client()
     # Convert the updates dict to a list of natural-language messages
     messages = [
         {"role": "user", "content": f"{key}: {value}"}
         for key, value in updates.items()
     ]
-    await client.add(messages=messages, user_id=f"global:{session_id}")
+    await asyncio.to_thread(
+        lambda: client.add(messages=messages, user_id=f"global:{session_id}")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +91,14 @@ async def set_global_context(session_id: str, updates: dict[str, Any]) -> None:
 
 async def get_domain_thread(session_id: str, domain: str) -> list[dict[str, Any]]:
     """Return all stored findings for a given domain in this session."""
-    client = _get_client()
-    memories = await client.get_all(user_id=f"domain:{session_id}:{domain}")
+    client = await _ensure_client()
+    memories = await asyncio.to_thread(
+        lambda: client.get_all(filters={"user_id": f"domain:{session_id}:{domain}"})
+    )
+    results = memories.get("results", memories) if isinstance(memories, dict) else memories
     return [
         {"id": m.get("id"), "memory": m.get("memory", ""), "metadata": m.get("metadata", {})}
-        for m in memories
+        for m in (results or [])
     ]
 
 
@@ -87,7 +110,7 @@ async def append_domain_finding(
     Mem0 performs semantic deduplication — if the finding is substantively
     the same as an existing one, it updates in place.
     """
-    client = _get_client()
+    client = await _ensure_client()
     messages = [
         {
             "role": "assistant",
@@ -99,8 +122,14 @@ async def append_domain_finding(
             ),
         }
     ]
-    await client.add(
-        messages=messages,
-        user_id=f"domain:{session_id}:{domain}",
-        metadata={"domain": domain, "session_id": session_id},
+    await asyncio.to_thread(
+        lambda: client.add(
+            messages=messages,
+            user_id=f"domain:{session_id}:{domain}",
+            metadata={
+                "domain": domain,
+                "session_id": session_id,
+                "finding": finding,
+            },
+        )
     )

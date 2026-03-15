@@ -7,6 +7,7 @@ are defined here and shared across agents, orchestrator, and PDF export.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Literal
 
@@ -55,7 +56,7 @@ class DomainFinding(BaseModel):
         default_factory=list,
         description="Agent inferences — clearly labelled as interpretations, not facts.",
     )
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score from 0.0 to 1.0.")
     error_reason: str | None = None
 
     @classmethod
@@ -64,7 +65,25 @@ class DomainFinding(BaseModel):
         if not prior:
             raise ValueError("Cannot reconstruct from empty prior.")
         latest = prior[-1]
-        return cls(**latest)
+
+        # If the latest record already looks like a DomainFinding dict, use it directly.
+        if isinstance(latest, dict) and "domain" in latest and "summary" in latest:
+            return cls(**latest)
+
+        # Mem0 stores structured data in metadata when available.
+        metadata = latest.get("metadata", {}) if isinstance(latest, dict) else {}
+        finding = metadata.get("finding") or metadata.get("finding_json")
+
+        if isinstance(finding, str):
+            try:
+                finding = json.loads(finding)
+            except json.JSONDecodeError:
+                finding = None
+
+        if isinstance(finding, dict):
+            return cls(**finding)
+
+        raise ValueError("Mem0 prior does not contain a reconstructable DomainFinding.")
 
 
 class PartialFinding(DomainFinding):

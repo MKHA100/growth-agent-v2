@@ -35,11 +35,14 @@ def is_already_answered(prior: list[dict[str, Any]], query: str) -> bool:
     """
     if not prior:
         return False
-    # Check if any prior entry has status=complete
-    return any(
-        entry.get("memory", "").find("status: complete") != -1
-        for entry in prior
-    )
+    for entry in prior:
+        metadata = entry.get("metadata", {}) if isinstance(entry, dict) else {}
+        finding = metadata.get("finding")
+        if isinstance(finding, dict) and finding.get("status") == "complete":
+            return True
+        if entry.get("memory", "").find("status: complete") != -1:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
