@@ -19,6 +19,7 @@ the agent-chat-ui frontend.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 
@@ -37,6 +38,8 @@ from observability.tracer import get_handler
 from orchestrator.state import OrchestratorState
 from pdf_export.generator import export_pdf
 from schemas.findings import DomainFinding, FinalReport, PartialFinding
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +71,19 @@ async def receive_message(state: OrchestratorState) -> dict:
             user_query = msg.content if isinstance(msg.content, str) else str(msg.content)
             break
 
+    logger.info("[Orchestrator] Received query: %s (session=%s)", user_query[:100], session_id[:12])
+
+    # Reset per-turn state so a second question in the same thread
+    # does not inherit stale findings, errors, or domains from turn 1.
+    turn_reset: dict = {
+        "session_id": session_id,
+        "user_query": user_query,
+        "domain_findings": {},
+        "error_domains": [],
+        "relevant_domains": [],
+        "pdf_url": None,
+    }
+
     # Load existing global context from Mem0 (non-blocking; ignore errors)
     try:
         global_ctx = await mem0_client.get_global_context(session_id)
@@ -76,15 +92,11 @@ async def receive_message(state: OrchestratorState) -> dict:
             # Append as a hidden context note (not rendered to user)
             ctx_msg = AIMessage(content=f"[Session context loaded: {ctx_str[:200]}...]")
             ctx_msg.id = f"do-not-render-{ctx_msg.id}"
-            return {
-                "session_id": session_id,
-                "user_query": user_query,
-                "messages": [ctx_msg],
-            }
+            return {**turn_reset, "messages": [ctx_msg]}
     except Exception:  # noqa: BLE001
         pass
 
-    return {"session_id": session_id, "user_query": user_query}
+    return turn_reset
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +107,7 @@ async def receive_message(state: OrchestratorState) -> dict:
 async def classify_domains(state: OrchestratorState) -> dict:
     """Use the LLM to determine which intelligence domains are relevant."""
     llm = _get_llm()
+    handler = get_handler(state.session_id)
 
     prompt = (
         f"Given the following product/market intelligence question, determine which of these "
@@ -105,7 +118,10 @@ async def classify_domains(state: OrchestratorState) -> dict:
         f"Include all highly relevant domains. Minimum 1, maximum 6."
     )
 
-    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    response = await llm.ainvoke(
+        [HumanMessage(content=prompt)],
+        config={"callbacks": [handler]},
+    )
     raw = response.content if isinstance(response.content, str) else str(response.content)
 
     # Parse domain list robustly
@@ -121,6 +137,8 @@ async def classify_domains(state: OrchestratorState) -> dict:
             valid_domains = _ALL_DOMAINS  # fallback: run all
     except (json.JSONDecodeError, TypeError):
         valid_domains = _ALL_DOMAINS  # fallback: run all
+
+    logger.info("[Orchestrator] Classified domains: %s", valid_domains)
 
     # Hide the classification message from UI
     classify_msg = AIMessage(content=f"Domains selected: {valid_domains}")
@@ -157,6 +175,7 @@ def _make_domain_node(domain_tag: str, agent_class):
 
     async def run_domain(state: OrchestratorState) -> dict:
         session_id = state.session_id
+        logger.info("[Orchestrator] Running %s agent", domain_tag)
 
         try:
             agent = agent_class(session_id)
@@ -164,16 +183,20 @@ def _make_domain_node(domain_tag: str, agent_class):
         except Exception as exc:  # noqa: BLE001
             import traceback
             tb = traceback.format_exc()
+            logger.error(
+                "[Orchestrator] %s agent FAILED: %s\n%s", domain_tag, exc, tb
+            )
             finding = PartialFinding(
                 domain=domain_tag,
                 status="failed",
-                error_reason=f"{exc}\n\nTRACEBACK:\n{tb}",
+                error_reason=f"{exc}",
             )
             error_domains = state.error_domains + [domain_tag]
 
-            # Hidden failure message
-            fail_msg = AIMessage(content=f"{domain_tag} agent failed: {exc}\n\nTRACEBACK:\n{tb}")
-            fail_msg.id = f"do-not-render-{fail_msg.id}"
+            # Visible failure message so user sees what went wrong
+            fail_msg = AIMessage(
+                content=f"⚠️ **{domain_tag.replace('_', ' ').title()}** analysis failed: {exc}"
+            )
 
             return {
                 "domain_findings": {**state.domain_findings, domain_tag: finding},
@@ -209,6 +232,8 @@ def _make_domain_node(domain_tag: str, agent_class):
 async def synthesise(state: OrchestratorState) -> dict:
     """Cross-domain narrative synthesis using Claude."""
     llm = _get_llm()
+    handler = get_handler(state.session_id)
+    logger.info("[Orchestrator] Starting synthesis across %d domains", len(state.domain_findings))
 
     findings_summary = ""
     for domain, finding in state.domain_findings.items():
@@ -237,7 +262,10 @@ async def synthesise(state: OrchestratorState) -> dict:
         f"Return ONLY the executive summary text. No headers, no JSON."
     )
 
-    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    response = await llm.ainvoke(
+        [HumanMessage(content=prompt)],
+        config={"callbacks": [handler]},
+    )
     exec_summary = response.content if isinstance(response.content, str) else str(response.content)
 
     # Store synthesis as a hidden intermediate
@@ -307,7 +335,7 @@ def stream_response(state: OrchestratorState) -> dict:
     summary = synthesis.summary if synthesis else "Intelligence analysis complete."
 
     if state.pdf_url:
-        pdf_link = f"\n\n[Download intelligence report]({state.pdf_url})"
+        pdf_link = f"\n\n[Download Intelligence Report (PDF)]({state.pdf_url})"
     else:
         pdf_link = "\n\n_(PDF export unavailable — see logs for details.)_"
 

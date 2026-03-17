@@ -12,10 +12,13 @@ never appended as duplicates.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any
 
 from mem0 import MemoryClient
+
+logger = logging.getLogger(__name__)
 
 
 _client: MemoryClient | None = None
@@ -49,6 +52,7 @@ async def _ensure_client() -> MemoryClient:
 
 async def get_global_context(session_id: str) -> dict[str, Any]:
     """Return the stored global context for this session as a flat dict."""
+    logger.info("[Mem0] Fetching global context for session %s", session_id[:12])
     client = await _ensure_client()
     memories = await asyncio.to_thread(
         lambda: client.get_all(filters={"user_id": f"global:{session_id}"})
@@ -91,6 +95,7 @@ async def set_global_context(session_id: str, updates: dict[str, Any]) -> None:
 
 async def get_domain_thread(session_id: str, domain: str) -> list[dict[str, Any]]:
     """Return all stored findings for a given domain in this session."""
+    logger.info("[Mem0] Fetching domain thread: %s for session %s", domain, session_id[:12])
     client = await _ensure_client()
     memories = await asyncio.to_thread(
         lambda: client.get_all(filters={"user_id": f"domain:{session_id}:{domain}"})
@@ -110,15 +115,24 @@ async def append_domain_finding(
     Mem0 performs semantic deduplication — if the finding is substantively
     the same as an existing one, it updates in place.
     """
+    logger.info("[Mem0] Appending finding for domain=%s session=%s", domain, session_id[:12])
     client = await _ensure_client()
+
+    # Build a rich message body with the full finding content so Mem0 can
+    # semantically deduplicate on it.  Keep metadata small (< 2000 chars)
+    # to stay within Mem0's metadata size limit.
+    import json as _json
+
+    finding_json = _json.dumps(finding, default=str)
     messages = [
         {
             "role": "assistant",
             "content": (
                 f"Domain '{domain}' finding — "
                 f"status: {finding.get('status', 'unknown')}, "
-                f"summary: {finding.get('summary', '')}, "
-                f"confidence: {finding.get('confidence', 0)}"
+                f"confidence: {finding.get('confidence', 0)}. "
+                f"Summary: {finding.get('summary', '')}. "
+                f"Full finding JSON: {finding_json}"
             ),
         }
     ]
@@ -129,7 +143,7 @@ async def append_domain_finding(
             metadata={
                 "domain": domain,
                 "session_id": session_id,
-                "finding": finding,
+                "status": finding.get("status", "unknown"),
             },
         )
     )

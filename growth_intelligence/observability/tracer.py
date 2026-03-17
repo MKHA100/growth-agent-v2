@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from langfuse.callback import CallbackHandler
+from langfuse.langchain import CallbackHandler
 
 
 def get_handler(session_id: str) -> CallbackHandler:
@@ -34,13 +34,10 @@ def get_handler(session_id: str) -> CallbackHandler:
         # This prevents crashes in environments without observability set up.
         return _NoOpHandler()
 
-    return CallbackHandler(
-        public_key=public_key,
-        secret_key=secret_key,
-        trace_name="growth_intelligence",
-        session_id=session_id,
-        tags=["growth-agent", "hackathon"],
-    )
+    # langfuse v3: CallbackHandler reads LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY,
+    # and LANGFUSE_HOST from environment variables automatically.
+    # session_id, trace_name, and tags are no longer constructor arguments.
+    return CallbackHandler()
 
 
 class _NoOpHandler:

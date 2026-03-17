@@ -8,6 +8,7 @@ Provides two async functions:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import AsyncGenerator
 
@@ -15,6 +16,8 @@ import asyncpraw
 import httpx
 
 from schemas.findings import Post
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +51,7 @@ async def search_reddit(query: str, limit: int = 15) -> list[Post]:
     reddit_secret = os.environ.get("REDDIT_CLIENT_SECRET", "")
     if not reddit_id or not reddit_secret:
         # Return empty list if Reddit credentials are not configured
+        logger.info("[Social] Reddit credentials not configured, skipping")
         return posts
 
     try:

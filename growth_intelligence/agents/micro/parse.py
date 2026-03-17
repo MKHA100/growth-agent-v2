@@ -8,6 +8,7 @@ Firecrawl detects a PDF, which is the trigger to route here instead.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 
@@ -15,6 +16,8 @@ import httpx
 from llama_parse import LlamaParse
 
 from schemas.findings import ParseResult
+
+logger = logging.getLogger(__name__)
 
 
 _LLAMAPARSE_API_KEY_ENV = "LLAMAPARSE_API_KEY"

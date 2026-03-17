@@ -13,12 +13,15 @@ Every domain agent:
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 import memory.mem0_client as mem0_client
 import memory.pinecone_client as pinecone_client
 from schemas.findings import Chunk, DomainFinding
+
+logger = logging.getLogger(__name__)
 
 
 class BaseDomainAgent(ABC):
@@ -42,6 +45,34 @@ class BaseDomainAgent(ABC):
             domain_tag=self.DOMAIN_TAG,
             top_k=5,
         )
+
+    async def recall_or_fallback(
+        self, query: str, local_chunks: list[Chunk]
+    ) -> list[Chunk]:
+        """Retrieve from Pinecone. Fall back to local chunks if Pinecone is empty.
+
+        Pinecone Serverless has eventual consistency — freshly upserted vectors
+        may not be queryable for a few seconds.  When that happens, fallback to
+        the chunks produced locally so synthesis always has something to work with.
+        """
+        top_chunks = await self.recall(query)
+        if top_chunks:
+            logger.info(
+                "[%s] Pinecone recall returned %d chunks",
+                self.DOMAIN_TAG, len(top_chunks),
+            )
+            return top_chunks
+
+        if local_chunks:
+            fallback = local_chunks[:5]
+            logger.warning(
+                "[%s] Pinecone recall returned 0 chunks — using %d local chunks as fallback",
+                self.DOMAIN_TAG, len(fallback),
+            )
+            return fallback
+
+        logger.warning("[%s] No chunks available (Pinecone empty AND no local chunks)", self.DOMAIN_TAG)
+        return []
 
     async def remember(self, finding: dict[str, Any]) -> None:
         """Persist a domain finding to Mem0 thread memory."""

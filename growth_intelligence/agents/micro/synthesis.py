@@ -13,6 +13,7 @@ message back to the model for self-correction.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Type, TypeVar
 
@@ -21,11 +22,13 @@ from pydantic import BaseModel, ValidationError
 
 from schemas.findings import Chunk, DomainFinding
 
+logger = logging.getLogger(__name__)
+
 
 T = TypeVar("T", bound=BaseModel)
 
 MAX_RETRIES = 3
-_CLAUDE_MODEL = "claude-sonnet-4-5"
+_CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
 
 
 class SynthesisFailedError(Exception):
@@ -117,8 +120,17 @@ async def execute(
     last_raw = ""
     last_error = ""
 
+    logger.info(
+        "[Synthesis] Starting synthesis with %d chunks, schema=%s",
+        len(chunks), schema.__name__,
+    )
+
     for attempt in range(MAX_RETRIES):
         if attempt > 0:
+            logger.warning(
+                "[Synthesis] Retry %d/%d — last error: %s",
+                attempt + 1, MAX_RETRIES, last_error[:200],
+            )
             prompt = _build_retry_prompt(last_raw, last_error, schema, few_shots, chunks)
 
         response = await client.messages.create(
@@ -141,8 +153,15 @@ async def execute(
             return schema.model_validate_json(last_raw)
         except ValidationError as exc:
             last_error = str(exc)
+            logger.warning(
+                "[Synthesis] Validation failed attempt %d: %s", attempt + 1, last_error[:200]
+            )
             continue
 
+    logger.error(
+        "[Synthesis] All %d attempts exhausted. Last error: %s",
+        MAX_RETRIES, last_error[:300],
+    )
     raise SynthesisFailedError(
         f"Synthesis failed after {MAX_RETRIES} attempts. "
         f"Last error: {last_error}\nLast raw output: {last_raw}"

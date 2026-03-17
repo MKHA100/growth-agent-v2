@@ -10,6 +10,7 @@ Provides:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -20,6 +21,8 @@ import agents.micro.parse as parse_agent
 import memory.pinecone_client as pinecone_client
 from schemas.findings import Chunk, Post, ScrapeResult, SearchResult
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Memory helpers
@@ -27,21 +30,46 @@ from schemas.findings import Chunk, Post, ScrapeResult, SearchResult
 
 
 def is_already_answered(prior: list[dict[str, Any]], query: str) -> bool:
-    """Heuristic check: are the prior findings still relevant for this query?
+    """Check whether the prior findings already answer *this specific* query.
 
-    Returns True only when the prior contains at least one complete finding.
-    Always returns False so the agent reruns on new sessions (prior may be stale).
-    In a production system this could do semantic similarity against the query.
+    Compares the new query against the query text stored alongside each
+    prior finding.  Only returns True when a completed finding exists AND
+    the stored query is a close textual match (>60% word overlap) — so a
+    different question in the same thread always triggers fresh research.
     """
     if not prior:
         return False
+
+    query_words = set(query.lower().split())
+    if not query_words:
+        return False
+
     for entry in prior:
+        memory_text = entry.get("memory", "") if isinstance(entry, dict) else ""
         metadata = entry.get("metadata", {}) if isinstance(entry, dict) else {}
         finding = metadata.get("finding")
+
+        is_complete = False
         if isinstance(finding, dict) and finding.get("status") == "complete":
+            is_complete = True
+        elif "status: complete" in memory_text:
+            is_complete = True
+
+        if not is_complete:
+            continue
+
+        # Check whether the stored memory is about the same query.
+        prior_words = set(memory_text.lower().split())
+        if not prior_words:
+            continue
+        overlap = len(query_words & prior_words) / len(query_words)
+        if overlap > 0.6:
+            logger.info(
+                "[is_already_answered] Prior covers query (%.0f%% overlap), reusing",
+                overlap * 100,
+            )
             return True
-        if entry.get("memory", "").find("status: complete") != -1:
-            return True
+
     return False
 
 
@@ -134,8 +162,13 @@ async def gather_signals(
         try:
             results = await search_agent.execute(q)
             search_results.extend(results)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[gather_signals] Search failed for '%s': %s", q[:80], exc)
+
+    logger.info(
+        "[gather_signals:%s] Search phase complete: %d results from %d queries",
+        domain_tag, len(search_results), len(queries),
+    )
 
     # 2. Scrape URLs found in search results (deduplicated)
     urls = extract_urls(search_results)
@@ -149,12 +182,18 @@ async def gather_signals(
                     scrape_results.append(
                         ScrapeResult(url=url, markdown=parsed.content, is_pdf=False)
                     )
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[gather_signals] Parse failed for PDF %s: %s", url, exc)
                     scrape_results.append(scraped)
             else:
                 scrape_results.append(scraped)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[gather_signals] Scrape failed for %s: %s", url, exc)
+
+    logger.info(
+        "[gather_signals:%s] Scrape phase complete: %d results from %d URLs",
+        domain_tag, len(scrape_results), len(urls[:10]),
+    )
 
     # 3. Social signals
     if include_social and queries:
@@ -162,13 +201,18 @@ async def gather_signals(
         try:
             reddit_posts = await social_agent.search_reddit(social_query, limit=15)
             social_posts.extend(reddit_posts)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[gather_signals] Reddit search failed: %s", exc)
         try:
             hn_posts = await social_agent.search_hn(social_query, limit=15)
             social_posts.extend(hn_posts)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[gather_signals] HN search failed: %s", exc)
+
+    logger.info(
+        "[gather_signals:%s] Social phase complete: %d posts",
+        domain_tag, len(social_posts),
+    )
 
     return search_results, scrape_results, social_posts
 

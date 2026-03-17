@@ -48,8 +48,8 @@ class MarketAgent(BaseDomainAgent):
         )
         await self.store_chunks(chunks)
 
-        # 5. Retrieve top-5 relevant chunks
-        top_chunks = await self.recall(query)
+        # 5. Retrieve top-5 relevant chunks (with local fallback)
+        top_chunks = await self.recall_or_fallback(query, chunks)
 
         # 6. Synthesise via Pydantic few-shot loop
         finding = await synthesis_agent.execute(

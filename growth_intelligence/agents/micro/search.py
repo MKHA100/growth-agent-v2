@@ -8,30 +8,37 @@ search results with source attribution via grounding_metadata.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import Runnable
 
 from schemas.findings import SearchResult
 
+logger = logging.getLogger(__name__)
 
-_client: ChatGoogleGenerativeAI | None = None
+_bound_client: Runnable | None = None
 
 
-def _get_client() -> ChatGoogleGenerativeAI:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
+def _get_client() -> Runnable:
+    """Return a Gemini model with Google Search grounding bound via bind_tools."""
+    global _bound_client
+    if _bound_client is None:
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
-        _client = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-exp",
+            raise RuntimeError(
+                "GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable is not set."
+            )
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
             google_api_key=api_key,
         )
-    return _client
+        _bound_client = llm.bind_tools([{"google_search": {}}])
+    return _bound_client
 
 
 _URL_RE = re.compile(r"https?://[^\s\]\)>\"]+")
@@ -142,12 +149,14 @@ async def execute(query: str) -> list[SearchResult]:
         List of SearchResult objects with URLs and content.
     """
     client = _get_client()
+    logger.info("[SearchAgent] Executing search: %s", query[:120])
 
     response = await asyncio.to_thread(
-        lambda: client.invoke(
-            [HumanMessage(content=query)],
-            tools=[{"google_search": {}}],
-        )
+        lambda: client.invoke([HumanMessage(content=query)])
     )
 
-    return _parse_grounding_results(response, query)
+    results = _parse_grounding_results(response, query)
+    logger.info(
+        "[SearchAgent] Got %d results for: %s", len(results), query[:80]
+    )
+    return results

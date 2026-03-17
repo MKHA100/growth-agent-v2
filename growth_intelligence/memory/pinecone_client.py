@@ -12,14 +12,18 @@ Key constants (per architecture spec):
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import uuid
 from datetime import datetime
 from typing import Any
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+logger = logging.getLogger(__name__)
+
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone, ServerlessSpec, CloudProvider, AwsRegion, Metric, VectorType
 
 from schemas.findings import Chunk
 
@@ -53,21 +57,37 @@ def _get_pinecone() -> Pinecone:
     return _pc
 
 
-def _get_index():
+_index = None
+
+
+async def _get_index():
+    global _index
+    if _index is not None:
+        return _index
+
     pc = _get_pinecone()
     index_name = os.environ.get("PINECONE_INDEX_NAME", "growth-intel")
 
     # Create index if it doesn't exist (text-embedding-3-large → 3072 dims)
-    existing = [idx.name for idx in pc.list_indexes()]
+    existing = await asyncio.to_thread(lambda: list(pc.list_indexes().names()))
     if index_name not in existing:
-        pc.create_index(
+        await asyncio.to_thread(
+            pc.create_index,
             name=index_name,
             dimension=3072,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            metric=Metric.COSINE,
+            spec=ServerlessSpec(
+                cloud=CloudProvider.AWS,
+                region=AwsRegion.US_EAST_1,
+            ),
+            vector_type=VectorType.DENSE,
         )
 
-    return pc.Index(index_name)
+    # Fetch the host via describe_index, then connect using host= to skip any
+    # further describe_index calls on subsequent Index method usage.
+    index_info = await asyncio.to_thread(pc.describe_index, index_name)
+    _index = await asyncio.to_thread(pc.Index, host=index_info.host)
+    return _index
 
 
 def _get_embedder() -> OpenAIEmbeddings:
@@ -124,13 +144,15 @@ def make_chunks(
 async def upsert_chunks(session_id: str, chunks: list[Chunk]) -> None:
     """Embed and upsert chunks into Pinecone under the session namespace."""
     if not chunks:
+        logger.info("[Pinecone] No chunks to upsert, skipping")
         return
 
+    logger.info("[Pinecone] Upserting %d chunks for session %s", len(chunks), session_id[:12])
     embedder = _get_embedder()
-    index = _get_index()
+    index = await _get_index()
 
     texts = [c.text for c in chunks]
-    vectors = await embedder.aembed_documents(texts)
+    vectors = await asyncio.to_thread(embedder.embed_documents, texts)
 
     records = []
     for chunk, vector in zip(chunks, vectors):
@@ -151,7 +173,11 @@ async def upsert_chunks(session_id: str, chunks: list[Chunk]) -> None:
     # Upsert in batches of 100 to respect Pinecone limits
     batch_size = 100
     for i in range(0, len(records), batch_size):
-        index.upsert(vectors=records[i : i + batch_size], namespace=session_id)
+        await asyncio.to_thread(
+            index.upsert,
+            vectors=records[i : i + batch_size],
+            namespace=session_id,
+        )
 
 
 async def query_chunks(
@@ -169,15 +195,17 @@ async def query_chunks(
         top_k: Number of results. Defaults to architecture-spec value of 5.
     """
     embedder = _get_embedder()
-    index = _get_index()
+    index = await _get_index()
+    logger.info("[Pinecone] Querying top-%d chunks for domain=%s", top_k, domain_tag)
 
-    query_vector: list[float] = await embedder.aembed_query(query)
+    query_vector: list[float] = await asyncio.to_thread(embedder.embed_query, query)
 
     filter_expr: dict[str, Any] | None = None
     if domain_tag:
         filter_expr = {"domain_tag": {"$eq": domain_tag}}
 
-    response = index.query(
+    response = await asyncio.to_thread(
+        index.query,
         vector=query_vector,
         top_k=top_k,
         namespace=session_id,

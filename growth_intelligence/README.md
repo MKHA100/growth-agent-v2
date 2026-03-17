@@ -4,20 +4,20 @@ A sequential multi-agent system for product and market intelligence, built on La
 
 ## Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Chat UI | [agent-chat-ui](https://github.com/langchain-ai/agent-chat-ui) (Next.js) |
-| Orchestration | LangGraph `StateGraph` |
-| Primary LLM | Claude Sonnet 4.5 (Anthropic) |
-| Search LLM | Gemini Flash 2.0 with Google Search grounding |
-| Embeddings | `text-embedding-3-large` (OpenAI) |
-| Vector store | Pinecone (`top_k=5`) |
-| Thread memory | Mem0 (in-place updates) |
-| Web scraping | Firecrawl |
-| Social signals | Reddit OAuth2 (`asyncpraw`) + HN Algolia |
-| Deep parse | LlamaParse |
-| PDF export | WeasyPrint + Jinja2 |
-| Observability | LangFuse |
+| Layer          | Technology                                                               |
+| -------------- | ------------------------------------------------------------------------ |
+| Chat UI        | [agent-chat-ui](https://github.com/langchain-ai/agent-chat-ui) (Next.js) |
+| Orchestration  | LangGraph `StateGraph`                                                   |
+| Primary LLM    | Claude Sonnet 4.5 (Anthropic)                                            |
+| Search LLM     | Gemini Flash 2.0 with Google Search grounding                            |
+| Embeddings     | `text-embedding-3-large` (OpenAI)                                        |
+| Vector store   | Pinecone (`top_k=5`)                                                     |
+| Thread memory  | Mem0 (in-place updates)                                                  |
+| Web scraping   | Firecrawl                                                                |
+| Social signals | Reddit OAuth2 (`asyncpraw`) + HN Algolia                                 |
+| Deep parse     | LlamaParse                                                               |
+| PDF export     | WeasyPrint + Jinja2                                                      |
+| Observability  | LangFuse                                                                 |
 
 ## Six Intelligence Domains
 
