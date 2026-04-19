@@ -1,0 +1,62 @@
+architecture-beta
+    group ui(internet)[Chat Interface]
+        service chat(server)[Next.js · agent-chat-ui]
+    end
+
+    group orchestrator(cloud)[LangGraph Orchestrator]
+        service recv(server)[receive_message]
+        service classify(server)[classify_domains · Claude]
+        service synth(server)[synthesise · Claude]
+        service epdf(server)[export_pdf · WeasyPrint]
+        service sresponse(server)[stream_response]
+        service umem(server)[update_memory]
+    end
+
+    group domain_agents(server)[Domain Agents]
+        service mkt(server)[Market]
+        service cmp(server)[Competitive]
+        service wl(server)[Win / Loss]
+        service pri(server)[Pricing]
+        service pos(server)[Positioning]
+        service adj(server)[Adjacent]
+    end
+
+    group micro(server)[Micro-Agents]
+        service search(server)[Search · Gemini Flash]
+        service scrape(server)[Scrape · Firecrawl]
+        service social(server)[Social · Reddit + HN]
+        service parse(server)[Parse · LlamaParse]
+        service synthesis(server)[Synthesis · Claude Sonnet]
+    end
+
+    group memory(database)[Memory Layer]
+        service mem0(database)[Mem0 · Thread Memory]
+        service pinecone(database)[Pinecone · Vector Store]
+    end
+
+    chat:R --> L:recv
+    recv:R --> L:classify
+    classify:R --> L:mkt
+    mkt:B --> T:cmp
+    cmp:B --> T:wl
+    wl:B --> T:pri
+    pri:B --> T:pos
+    pos:B --> T:adj
+    adj:R --> L:synth
+    synth:R --> L:epdf
+    epdf:R --> L:sresponse
+    sresponse:R --> L:umem
+    sresponse:T --> B:chat
+
+    mkt:R --> L:search
+    mkt:R --> L:scrape
+    mkt:R --> L:social
+    scrape:B --> T:parse
+    search:B --> T:synthesis
+    scrape:B --> T:synthesis
+    social:B --> T:synthesis
+
+    synthesis:R --> L:pinecone
+    pinecone:R --> L:synthesis
+    umem:B --> T:mem0
+    mem0:R --> L:recv
